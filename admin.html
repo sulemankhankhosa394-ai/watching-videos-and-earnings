@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="ur">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Admin - Watch & Earn</title>
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="navbar">
+    <div class="brand">🛠️ Admin Panel</div>
+    <div class="nav-right">
+      <a href="#" class="muted" onclick="logout()" style="text-decoration:none;">Logout</a>
+    </div>
+  </div>
+
+  <div class="container wide">
+
+    <div class="card">
+      <h2>Withdrawal Requests</h2>
+      <table>
+        <thead><tr><th>User</th><th>Amount</th><th>Method</th><th>Account</th><th>Status</th><th>Action</th></tr></thead>
+        <tbody id="withdrawTable"><tr><td colspan="6">Loading...</td></tr></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>Add New Video</h2>
+      <div id="vErr" class="error-msg" style="display:none;"></div>
+      <div id="vSuccess" class="success-msg" style="display:none;"></div>
+      <label>YouTube Video ID (e.g. dQw4w9WgXcQ)</label>
+      <input id="ytId" type="text" />
+      <label>Title</label>
+      <input id="vTitle" type="text" />
+      <label>Duration (seconds)</label>
+      <input id="vDuration" type="number" />
+      <label>Reward Amount (Rs)</label>
+      <input id="vReward" type="number" step="0.01" />
+      <button class="btn" onclick="addVideo()">Video Add Karen</button>
+    </div>
+
+    <div class="card">
+      <h2>All Users</h2>
+      <table>
+        <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Balance</th></tr></thead>
+        <tbody id="usersTable"><tr><td colspan="4">Loading...</td></tr></tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <script src="js/app.js"></script>
+  <script>
+    requireLogin();
+    if (getUser()?.role !== 'admin') { window.location.href = 'dashboard.html'; }
+
+    async function loadWithdrawals() {
+      const data = await api('/admin/withdrawals');
+      const tbody = document.getElementById('withdrawTable');
+      if (data.requests.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="muted">Koi request nahi</td></tr>';
+        return;
+      }
+      tbody.innerHTML = data.requests.map((r) => `
+        <tr>
+          <td>${r.user_name}<br/><span class="muted">${r.user_email}</span></td>
+          <td>${money(r.amount)}</td>
+          <td>${r.method}</td>
+          <td>${r.account_name}<br/><span class="muted">${r.account_number}</span></td>
+          <td><span class="status-pill status-${r.status}">${r.status}</span></td>
+          <td>
+            ${r.status === 'pending' ? `
+              <button class="btn small" onclick="approveWithdraw(${r.id})">Paid Mark Karen</button>
+              <button class="btn small danger" onclick="rejectWithdraw(${r.id})">Reject</button>
+            ` : ''}
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    async function approveWithdraw(id) {
+      if (!confirm('Confirm karen ke aapne ye amount JazzCash/EasyPaisa/Bank se bhej diya hai?')) return;
+      await api(`/admin/withdrawals/${id}/approve`, { method: 'POST', body: JSON.stringify({}) });
+      loadWithdrawals();
+    }
+
+    async function rejectWithdraw(id) {
+      const note = prompt('Reject karne ki wajah (optional):') || '';
+      await api(`/admin/withdrawals/${id}/reject`, { method: 'POST', body: JSON.stringify({ note }) });
+      loadWithdrawals();
+    }
+
+    async function addVideo() {
+      const errBox = document.getElementById('vErr');
+      const okBox = document.getElementById('vSuccess');
+      errBox.style.display = 'none';
+      okBox.style.display = 'none';
+
+      const youtube_id = document.getElementById('ytId').value.trim();
+      const title = document.getElementById('vTitle').value.trim();
+      const duration_seconds = Number(document.getElementById('vDuration').value);
+      const reward_amount = Number(document.getElementById('vReward').value);
+
+      try {
+        await api('/admin/videos', { method: 'POST', body: JSON.stringify({ youtube_id, title, duration_seconds, reward_amount }) });
+        okBox.textContent = 'Video add ho gayi.';
+        okBox.style.display = 'block';
+        document.getElementById('ytId').value = '';
+        document.getElementById('vTitle').value = '';
+        document.getElementById('vDuration').value = '';
+        document.getElementById('vReward').value = '';
+      } catch (e) {
+        errBox.textContent = e.message;
+        errBox.style.display = 'block';
+      }
+    }
+
+    async function loadUsers() {
+      const data = await api('/admin/users');
+      document.getElementById('usersTable').innerHTML = data.users.map((u) => `
+        <tr><td>${u.name}</td><td>${u.email}</td><td>${u.role}</td><td>${money(u.wallet_balance)}</td></tr>
+      `).join('');
+    }
+
+    loadWithdrawals();
+    loadUsers();
+  </script>
+</body>
+</html>

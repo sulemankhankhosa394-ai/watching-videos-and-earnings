@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="ur">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Dashboard - Watch & Earn</title>
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="navbar">
+    <div class="brand">🎬 Watch & Earn</div>
+    <div class="nav-right">
+      <span class="wallet-pill" id="walletPill">Rs 0.00</span>
+      <a href="#" class="muted" onclick="logout()" style="text-decoration:none;">Logout</a>
+    </div>
+  </div>
+
+  <div class="container">
+
+    <!-- Video Player (hidden until a video is opened) -->
+    <div id="playerSection" style="display:none;">
+      <div class="player-box">
+        <div id="ytPlayer"></div>
+      </div>
+      <div class="card" id="playerStatus">
+        <p class="muted" id="watchNote">Video dekhte rahen, reward automatically credit hoga.</p>
+      </div>
+      <button class="btn secondary" onclick="closePlayer()">Video List Par Wapis Jayen</button>
+      <div style="height:20px"></div>
+    </div>
+
+    <!-- Video list -->
+    <div id="videoListSection">
+      <div class="card">
+        <h2>Aaj Ke Videos</h2>
+        <p class="muted" id="dailyLimitNote"></p>
+        <div id="videoList">Loading...</div>
+      </div>
+    </div>
+
+    <!-- Wallet & withdraw -->
+    <div class="card">
+      <h2>Wallet</h2>
+      <p style="font-size:26px; font-weight:700; color:#15803d;" id="balanceText">Rs 0.00</p>
+      <button class="btn" onclick="openWithdrawForm()">Withdraw Karen</button>
+
+      <div id="withdrawForm" style="display:none; margin-top:16px;">
+        <label>Amount (Rs)</label>
+        <input id="wAmount" type="number" placeholder="500" />
+
+        <label>Method</label>
+        <select id="wMethod">
+          <option value="jazzcash">JazzCash</option>
+          <option value="easypaisa">EasyPaisa</option>
+          <option value="bank">Bank Transfer</option>
+        </select>
+
+        <label>Account Number</label>
+        <input id="wAccountNumber" type="text" placeholder="03xx-xxxxxxx ya IBAN" />
+
+        <label>Account Holder Naam</label>
+        <input id="wAccountName" type="text" placeholder="Jaisa account mein register hai" />
+
+        <div id="wErr" class="error-msg" style="display:none;"></div>
+        <div id="wSuccess" class="success-msg" style="display:none;"></div>
+
+        <button class="btn" onclick="submitWithdraw()">Request Bhejein</button>
+      </div>
+    </div>
+
+    <!-- Withdrawal history -->
+    <div class="card">
+      <h3>Withdrawal Requests</h3>
+      <div id="withdrawList" class="muted">Loading...</div>
+    </div>
+
+    <!-- Transaction history -->
+    <div class="card">
+      <h3>Transaction History</h3>
+      <div id="txnList" class="muted">Loading...</div>
+    </div>
+
+  </div>
+
+  <script src="js/app.js"></script>
+  <script>requireLogin();</script>
+
+  <script src="https://www.youtube.com/iframe_api"></script>
+  <script src="js/youtube-tracker.js"></script>
+
+  <script>
+    let currentVideos = [];
+
+    async function loadDashboard() {
+      renderWalletPill();
+      await loadVideos();
+      await loadWallet();
+      await loadWithdrawals();
+    }
+
+    async function loadVideos() {
+      const data = await api('/videos');
+      currentVideos = data.videos;
+      document.getElementById('dailyLimitNote').textContent =
+        `Aaj ${data.completed_today} / ${data.daily_limit} videos complete kiye.`;
+
+      const list = document.getElementById('videoList');
+      if (currentVideos.length === 0) {
+        list.innerHTML = '<p class="muted">Abhi koi video available nahi hai.</p>';
+        return;
+      }
+
+      list.innerHTML = currentVideos.map((v) => {
+        const done = v.my_progress.completed;
+        return `
+          <div class="video-item">
+            <img class="video-thumb" src="https://img.youtube.com/vi/${v.youtube_id}/mqdefault.jpg" />
+            <div class="video-info">
+              <div class="video-title">${v.title}</div>
+              <div class="video-reward">${money(v.reward_amount)}</div>
+              <span class="badge ${done ? 'done' : ''}">${done ? 'Complete ✓' : 'Baaki hai'}</span>
+            </div>
+            ${done ? '' : `<button class="btn small" onclick="openVideo(${v.id})">Dekhen</button>`}
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function loadWallet() {
+      const data = await api('/wallet');
+      document.getElementById('balanceText').textContent = money(data.balance);
+
+      const txnList = document.getElementById('txnList');
+      if (data.transactions.length === 0) {
+        txnList.innerHTML = '<p class="muted">Abhi koi transaction nahi.</p>';
+      } else {
+        txnList.innerHTML = data.transactions.map((t) => `
+          <div class="txn-row">
+            <span>${t.description || t.type}</span>
+            <span class="txn-amount ${t.amount >= 0 ? 'positive' : 'negative'}">${t.amount >= 0 ? '+' : ''}${money(t.amount)}</span>
+          </div>
+        `).join('');
+      }
+    }
+
+    async function loadWithdrawals() {
+      const data = await api('/withdraw/my');
+      const el = document.getElementById('withdrawList');
+      if (data.requests.length === 0) {
+        el.innerHTML = '<p class="muted">Koi withdrawal request nahi.</p>';
+      } else {
+        el.innerHTML = data.requests.map((r) => `
+          <div class="txn-row">
+            <span>${money(r.amount)} — ${r.method}</span>
+            <span class="status-pill status-${r.status}">${r.status}</span>
+          </div>
+        `).join('');
+      }
+    }
+
+    function openWithdrawForm() {
+      document.getElementById('withdrawForm').style.display = 'block';
+    }
+
+    async function submitWithdraw() {
+      const errBox = document.getElementById('wErr');
+      const okBox = document.getElementById('wSuccess');
+      errBox.style.display = 'none';
+      okBox.style.display = 'none';
+
+      const amount = Number(document.getElementById('wAmount').value);
+      const method = document.getElementById('wMethod').value;
+      const account_number = document.getElementById('wAccountNumber').value.trim();
+      const account_name = document.getElementById('wAccountName').value.trim();
+
+      try {
+        await api('/withdraw', { method: 'POST', body: JSON.stringify({ amount, method, account_number, account_name }) });
+        okBox.textContent = 'Request bhej di gayi. Admin approval ke baad paise mil jayenge.';
+        okBox.style.display = 'block';
+        document.getElementById('wAmount').value = '';
+        document.getElementById('wAccountNumber').value = '';
+        document.getElementById('wAccountName').value = '';
+        renderWalletPill();
+        loadWallet();
+        loadWithdrawals();
+      } catch (e) {
+        errBox.textContent = e.message;
+        errBox.style.display = 'block';
+      }
+    }
+
+    loadDashboard();
+  </script>
+</body>
+</html>
